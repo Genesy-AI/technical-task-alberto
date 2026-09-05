@@ -66,6 +66,7 @@ John,Doe,john.doe@example.com,Developer,US,Tech Corp`
       companyName: 'Tech Corp',
       isValid: true,
       errors: [],
+      warnings: [],
       rowIndex: 2,
     })
   })
@@ -195,6 +196,81 @@ John,Doe,john@example.com,someValue`
     expect(result[0].isValid).toBe(true)
   })
 
+  it('should map phone number, yearsInRole alias, and LinkedIn URL', () => {
+    const csv = `firstName,lastName,email,phoneNumber,yearsInRole,linkedinUrl
+John,Doe,john@example.com,+1-280-754-0462,5,linkedin.com/in/john-doe`
+
+    const result = parseCsv(csv)
+
+    expect(result).toHaveLength(1)
+    expect(result[0].isValid).toBe(true)
+    expect(result[0].phoneNumber).toBe('+1-280-754-0462')
+    expect(result[0].yearsAtCompany).toBe(5)
+    expect(result[0].linkedinUrl).toBe('https://linkedin.com/in/john-doe')
+  })
+
+  it('should accept yearsAtCompany header and zero years', () => {
+    const csv = `firstName,lastName,email,yearsAtCompany
+John,Doe,john@example.com,0`
+
+    const result = parseCsv(csv)
+
+    expect(result[0].isValid).toBe(true)
+    expect(result[0].yearsAtCompany).toBe(0)
+  })
+
+  it('should reject non-integer years at company', () => {
+    const csv = `firstName,lastName,email,yearsInRole
+John,Doe,john@example.com,two`
+
+    const result = parseCsv(csv)
+
+    expect(result[0].isValid).toBe(false)
+    expect(result[0].errors).toContain('Years at company must be a non-negative integer')
+  })
+
+  it('should reject negative years at company', () => {
+    const csv = `firstName,lastName,email,yearsAtCompany
+John,Doe,john@example.com,-1`
+
+    const result = parseCsv(csv)
+
+    expect(result[0].isValid).toBe(false)
+    expect(result[0].errors).toContain('Years at company must be a non-negative integer')
+  })
+
+  it('should reject obviously invalid LinkedIn values', () => {
+    const csv = `firstName,lastName,email,linkedin
+John,Doe,john@example.com,not a url`
+
+    const result = parseCsv(csv)
+
+    expect(result[0].isValid).toBe(false)
+    expect(result[0].errors).toContain('Invalid LinkedIn URL')
+  })
+
+  it('should accept https LinkedIn URLs as-is', () => {
+    const csv = `firstName,lastName,email,linkedinProfileUrl
+John,Doe,john@example.com,https://www.linkedin.com/in/jane-doe`
+
+    const result = parseCsv(csv)
+
+    expect(result[0].isValid).toBe(true)
+    expect(result[0].linkedinUrl).toBe('https://www.linkedin.com/in/jane-doe')
+  })
+
+  it('should omit empty optional new fields', () => {
+    const csv = `firstName,lastName,email,phoneNumber,yearsInRole,linkedinUrl
+John,Doe,john@example.com,,,`
+
+    const result = parseCsv(csv)
+
+    expect(result[0].isValid).toBe(true)
+    expect(result[0].phoneNumber).toBeUndefined()
+    expect(result[0].yearsAtCompany).toBeUndefined()
+    expect(result[0].linkedinUrl).toBeUndefined()
+  })
+
   it('should handle mixed valid and invalid leads', () => {
     const csv = `firstName,lastName,email
 John,Doe,john@example.com
@@ -222,5 +298,43 @@ Jane,Johnson,jane@example.com`
     expect(result[0].lastName).toBe('Doe')
     expect(result[0].email).toBe('john@example.com')
     expect(result[0].isValid).toBe(true)
+  })
+
+  it('normalizes lowercase country codes to uppercase ISO alpha-2', () => {
+    const csv = `firstName,lastName,email,countryCode
+John,Doe,john@example.com,us`
+
+    const result = parseCsv(csv)
+
+    expect(result[0].isValid).toBe(true)
+    expect(result[0].countryCode).toBe('US')
+    expect(result[0].warnings).toEqual([])
+  })
+
+  it('omits invalid country codes with a warning and still marks the row valid', () => {
+    const csv = `firstName,lastName,email,countryCode
+Amanda,James,kevin03@beard.net,12
+Latasha,Martin,aprilmcconnell@gmail.com,XXX`
+
+    const result = parseCsv(csv)
+
+    expect(result).toHaveLength(2)
+    expect(result[0].isValid).toBe(true)
+    expect(result[0].countryCode).toBeUndefined()
+    expect(result[0].warnings).toContain('Invalid country code "12" was omitted')
+    expect(result[1].isValid).toBe(true)
+    expect(result[1].countryCode).toBeUndefined()
+    expect(result[1].warnings).toContain('Invalid country code "XXX" was omitted')
+  })
+
+  it('keeps empty country codes valid without a warning', () => {
+    const csv = `firstName,lastName,email,countryCode
+Steven,Hernandez,rodriguezbrian@smith.net,`
+
+    const result = parseCsv(csv)
+
+    expect(result[0].isValid).toBe(true)
+    expect(result[0].countryCode).toBeUndefined()
+    expect(result[0].warnings).toEqual([])
   })
 })

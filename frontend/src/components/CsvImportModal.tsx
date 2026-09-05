@@ -3,7 +3,9 @@ import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { getCsvImportHelpText } from '../leadFields'
 import { CsvLead, parseCsv } from '../utils/csvParser'
+import { decodeCsvBytes } from '../utils/decodeCsvBytes'
 
 interface CsvImportModalProps {
   isOpen: boolean
@@ -52,7 +54,11 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
     const reader = new FileReader()
     reader.onload = (e) => {
       try {
-        const content = e.target?.result as string
+        const buffer = e.target?.result
+        if (!(buffer instanceof ArrayBuffer)) {
+          throw new Error('Failed to read CSV file')
+        }
+        const content = decodeCsvBytes(new Uint8Array(buffer))
         const parsed = parseCsv(content)
         setCsvData(parsed)
         setIsProcessing(false)
@@ -66,7 +72,7 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
       toast.error('Error reading file')
       setIsProcessing(false)
     }
-    reader.readAsText(file)
+    reader.readAsArrayBuffer(file)
   }
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -100,6 +106,9 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
         jobTitle: lead.jobTitle || undefined,
         countryCode: lead.countryCode || undefined,
         companyName: lead.companyName || undefined,
+        phoneNumber: lead.phoneNumber || undefined,
+        yearsAtCompany: lead.yearsAtCompany,
+        linkedinUrl: lead.linkedinUrl || undefined,
       }))
 
       return api.leads.bulkImport({ leads: leadsToImport })
@@ -237,8 +246,7 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
                     </button>
                   </p>
                   <p className="text-sm text-gray-500">
-                    CSV must include: firstName, lastName, email (required). Optional: jobTitle, countryCode,
-                    companyName
+                    {getCsvImportHelpText()}
                   </p>
                 </div>
               )}
@@ -309,7 +317,20 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
                         </td>
                         <td className="px-3 py-2 text-sm text-gray-900">{lead.email || '-'}</td>
                         <td className="px-3 py-2 text-sm text-gray-900">{lead.companyName || '-'}</td>
-                        <td className="px-3 py-2 text-sm text-red-600">{lead.errors.join(', ') || '-'}</td>
+                        <td className="px-3 py-2 text-sm">
+                          {lead.errors.length === 0 && lead.warnings.length === 0 ? (
+                            <span className="text-gray-500">-</span>
+                          ) : (
+                            <div className="space-y-1">
+                              {lead.errors.length > 0 && (
+                                <div className="text-red-600">{lead.errors.join(', ')}</div>
+                              )}
+                              {lead.warnings.length > 0 && (
+                                <div className="text-yellow-700">{lead.warnings.join(', ')}</div>
+                              )}
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

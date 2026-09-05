@@ -96,10 +96,10 @@ describe('generateMessageFromTemplate', () => {
       )
     })
 
-    it('should throw error when field does not exist on lead', () => {
+    it('should throw error when field is missing from a partial lead object', () => {
       const template = 'Hello {firstName}, your last name is {lastName}'
       expect(() => generateMessageFromTemplate(template, minimalLead)).toThrow(
-        'Missing required field: lastName'
+        'Unknown field in template: lastName'
       )
     })
   })
@@ -204,6 +204,50 @@ describe('generateMessageFromTemplate', () => {
       const template = 'Hi {firstName} from {companyName}!'
       const result = generateMessageFromTemplate(template, emojiLead)
       expect(result).toBe('Hi John 😊 from TechCorp 🚀!')
+    })
+  })
+
+  describe('new lead fields', () => {
+    const leadWithNewFields: Lead = {
+      firstName: 'John',
+      lastName: 'Doe',
+      email: 'john.doe@example.com',
+      jobTitle: 'Software Engineer',
+      companyName: 'Tech Corp',
+      countryCode: 'US',
+      phoneNumber: '+1-280-754-0462',
+      yearsAtCompany: 5,
+      linkedinUrl: 'https://linkedin.com/in/john-doe',
+    }
+
+    it('should interpolate phone number, years at company, and LinkedIn URL', () => {
+      const template =
+        'Call {firstName} at {phoneNumber} after {yearsAtCompany} years. Profile: {linkedinUrl}'
+      const result = generateMessageFromTemplate(template, leadWithNewFields)
+      expect(result).toBe(
+        'Call John at +1-280-754-0462 after 5 years. Profile: https://linkedin.com/in/john-doe'
+      )
+    })
+
+    it('should stringify numeric years at company including zero', () => {
+      const template = 'Tenure: {yearsAtCompany}'
+      expect(generateMessageFromTemplate(template, { firstName: 'Ada', yearsAtCompany: 0 })).toBe(
+        'Tenure: 0'
+      )
+    })
+
+    it('should throw when a new optional field is empty', () => {
+      const template = 'Call me at {phoneNumber}'
+      expect(() => generateMessageFromTemplate(template, { ...fullLead, phoneNumber: null })).toThrow(
+        'Missing required field: phoneNumber'
+      )
+    })
+
+    it('should treat system fields as unknown', () => {
+      const template = 'Saved message: {message}'
+      expect(() =>
+        generateMessageFromTemplate(template, { ...fullLead, message: 'hello', id: 1 })
+      ).toThrow('Unknown field in template: message')
     })
   })
 })

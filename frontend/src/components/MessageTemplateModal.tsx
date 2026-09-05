@@ -1,23 +1,38 @@
-import { FC, useState, useEffect, useCallback, useRef } from 'react'
+import { FC, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { LeadsGetManyOutput } from '../api/types/leads/getMany'
+import {
+  LEAD_FIELD_GROUP_LABELS,
+  LEAD_FIELDS,
+  LeadField,
+  LeadFieldGroup,
+  previewMessageFromTemplate,
+} from '../leadFields'
+
+type PreviewLead = LeadsGetManyOutput[number]
 
 interface MessageTemplateModalProps {
   isOpen: boolean
   onClose: () => void
   selectedLeadIds: number[]
   selectedLeadsCount: number
+  previewLead?: PreviewLead
 }
+
+const FIELD_GROUP_ORDER: LeadFieldGroup[] = ['contact', 'role', 'company']
 
 export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
   isOpen,
   onClose,
   selectedLeadIds,
   selectedLeadsCount,
+  previewLead,
 }) => {
   const [template, setTemplate] = useState('')
+  const [fieldQuery, setFieldQuery] = useState('')
   const [generationResult, setGenerationResult] = useState<{
     success: boolean
     generatedCount: number
@@ -40,6 +55,7 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
         toast.success(message)
         onClose()
         setTemplate('')
+        setFieldQuery('')
         setGenerationResult(null)
       } else {
         const successMessage =
@@ -74,6 +90,7 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
     if (!generateMessagesMutation.isPending) {
       onClose()
       setTemplate('')
+      setFieldQuery('')
       setGenerationResult(null)
     }
   }, [generateMessagesMutation.isPending, onClose])
@@ -106,22 +123,46 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
     }
   }, [isOpen, handleClose])
 
-  const availableFields = ['firstName', 'lastName', 'email', 'jobTitle', 'companyName', 'countryCode']
+  const groupedFields = useMemo(() => {
+    const query = fieldQuery.trim().toLowerCase()
+    const filtered = LEAD_FIELDS.filter(
+      (field) =>
+        !query ||
+        field.label.toLowerCase().includes(query) ||
+        field.key.toLowerCase().includes(query)
+    )
 
-  const insertField = (field: string) => {
+    return FIELD_GROUP_ORDER.map((group) => ({
+      group,
+      label: LEAD_FIELD_GROUP_LABELS[group],
+      fields: filtered.filter((field) => field.group === group),
+    })).filter((section) => section.fields.length > 0)
+  }, [fieldQuery])
+
+  const insertField = (field: LeadField) => {
     if (textareaRef.current) {
       const textarea = textareaRef.current
       const start = textarea.selectionStart
       const end = textarea.selectionEnd
-      const newTemplate = template.substring(0, start) + `{${field}}` + template.substring(end)
+      const token = `{${field.key}}`
+      const newTemplate = template.substring(0, start) + token + template.substring(end)
       setTemplate(newTemplate)
 
       setTimeout(() => {
         textarea.focus()
-        textarea.setSelectionRange(start + field.length + 2, start + field.length + 2)
+        textarea.setSelectionRange(start + token.length, start + token.length)
       }, 0)
     }
   }
+
+  const preview = useMemo(() => {
+    if (!template.trim() || !previewLead) return null
+    return previewMessageFromTemplate(template, previewLead)
+  }, [template, previewLead])
+
+  const previewLeadName = previewLead
+    ? `${previewLead.firstName} ${previewLead.lastName || ''}`.trim()
+    : ''
 
   if (!isOpen) return null
 
@@ -156,18 +197,42 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
                 Message Template
               </label>
               <div className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  <span className="text-sm text-gray-600">Insert field:</span>
-                  {availableFields.map((field) => (
-                    <button
-                      key={field}
-                      type="button"
-                      onClick={() => insertField(field)}
-                      className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded hover:bg-blue-200 transition-colors"
-                    >
-                      {`{${field}}`}
-                    </button>
-                  ))}
+                <div>
+                  <label htmlFor="field-search" className="block text-sm text-gray-600 mb-1">
+                    Insert field
+                  </label>
+                  <input
+                    id="field-search"
+                    type="search"
+                    value={fieldQuery}
+                    onChange={(e) => setFieldQuery(e.target.value)}
+                    placeholder="Search fields by name..."
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <div className="mt-2 max-h-44 overflow-y-auto border border-gray-200 rounded-md divide-y divide-gray-100">
+                    {groupedFields.length === 0 ? (
+                      <p className="px-3 py-2 text-sm text-gray-500">No fields match "{fieldQuery}"</p>
+                    ) : (
+                      groupedFields.map((section) => (
+                        <div key={section.group} className="py-1">
+                          <div className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                            {section.label}
+                          </div>
+                          {section.fields.map((field) => (
+                            <button
+                              key={field.key}
+                              type="button"
+                              onClick={() => insertField(field)}
+                              className="w-full flex items-center justify-between px-3 py-1.5 text-left text-sm hover:bg-blue-50 transition-colors"
+                            >
+                              <span className="text-gray-900">{field.label}</span>
+                              <span className="ml-3 text-xs font-mono text-blue-700">{`{${field.key}}`}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
                 <textarea
                   ref={textareaRef}
@@ -185,6 +250,20 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
                 lead.
               </p>
             </div>
+
+            {preview && previewLead && (
+              <div className="rounded-lg border border-gray-200 p-4 bg-gray-50">
+                <h3 className="text-sm font-medium text-gray-900 mb-2">
+                  Preview for {previewLeadName}
+                  {selectedLeadsCount > 1 ? ' (first selected lead)' : ''}
+                </h3>
+                {preview.ok ? (
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap">{preview.message}</p>
+                ) : (
+                  <p className="text-sm text-amber-800">{preview.error}</p>
+                )}
+              </div>
+            )}
 
             {generationResult && (
               <div className="space-y-4">
